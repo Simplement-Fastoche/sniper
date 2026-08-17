@@ -3,8 +3,6 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-import 'package:permission_handler/permission_handler.dart';
 
 class LoggerService {
   static final LoggerService _instance = LoggerService._internal();
@@ -22,19 +20,16 @@ class LoggerService {
     if (_initialized) return;
 
     try {
-      // Essayer d'abord le stockage externe (accessible via gestionnaire de fichiers)
-      await _initExternalStorage();
-    } catch (e) {
-      debugPrint('Erreur init stockage externe: $e');
-      // Fallback sur le stockage interne
+      // 👇 On utilise uniquement le stockage interne, ZÉRO permission requise !
       await _initInternalStorage();
+      await _loadLogs();
+    } catch (e) {
+      debugPrint('Erreur init logger: $e');
     }
 
-    await _loadLogs();
     _initialized = true;
   }
 
-  // Dans logger_service.dart, ajoutez cette méthode :
   String getAllLogsFormatted() {
     if (_logs.isEmpty) return 'Aucun log disponible';
 
@@ -57,35 +52,17 @@ class LoggerService {
     return buffer.toString();
   }
 
-
-  Future<void> _initExternalStorage() async {
+  Future<void> _initInternalStorage() async {
     try {
-      // Demander la permission de stockage (pour Android)
-      if (Platform.isAndroid) {
-        final status = await Permission.storage.request();
-        if (!status.isGranted) {
-          debugPrint('Permission de stockage refusée, utilisation du stockage interne');
-          throw Exception('Permission refusée');
-        }
-      }
-
-      // Utiliser le dossier Downloads (toujours accessible sans root)
-      final directory = Directory('/storage/emulated/0/Download/SniperLogs');
-      if (!await directory.exists()) {
-        await directory.create(recursive: true);
-      }
+      // getApplicationDocumentsDirectory() vient de path_provider
+      // C'est un dossier privé, invisible pour l'utilisateur, parfait pour les logs.
+      final directory = await getApplicationDocumentsDirectory();
       _logFilePath = '${directory.path}/$_logFileName';
-      debugPrint('Logs dans: $_logFilePath');
+      debugPrint('Logs internes dans: $_logFilePath');
     } catch (e) {
-      debugPrint('Erreur init externe: $e');
+      debugPrint('Erreur création fichier de log: $e');
       rethrow;
     }
-  }
-
-  Future<void> _initInternalStorage() async {
-    final directory = await getApplicationDocumentsDirectory();
-    _logFilePath = '${directory.path}/$_logFileName';
-    debugPrint('Logs internes dans: $_logFilePath');
   }
 
   Future<void> _loadLogs() async {
@@ -119,18 +96,15 @@ class LoggerService {
       if (_logFilePath == null) return;
 
       final file = File(_logFilePath!);
-      // Créer le dossier si nécessaire
       await file.parent.create(recursive: true);
 
       final content = _logs.map((log) => jsonEncode(log.toJson())).join('\n');
       await file.writeAsString(content);
-      debugPrint('Logs sauvegardés: $_logFilePath');
     } catch (e) {
       debugPrint('Erreur sauvegarde logs: $e');
     }
   }
 
-  // Ajouter un log avec différents niveaux
   void info(String message, {Map<String, dynamic>? data}) {
     _addLog(LogLevel.info, message, data);
   }
@@ -171,7 +145,6 @@ class LoggerService {
 
     _saveLogs();
 
-    // Afficher dans la console si en debug
     if (kDebugMode) {
       debugPrint('[${level.name.toUpperCase()}] $message');
       if (data != null) {

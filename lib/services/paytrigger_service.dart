@@ -1,11 +1,14 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+// 👇 1. NOUVEL IMPORT POUR TA CONFIGURATION CENTRALE
+import '../config/api_config.dart';
 
 class PayTriggerService {
   static Future<void> sendCallback({required bool isQuarantined}) async {
     try {
       final response = await http.post(
-        Uri.parse('https://admin.sniper-sarl.cloud/api/paytrigger/callback'),
+        // 👇 2. UTILISATION DE LA CONFIGURATION CENTRALE
+        Uri.parse(ApiConfig.payTriggerCallbackEndpoint),
         headers: {
           'Content-Type': 'application/json',
           'Accept': 'application/json',

@@ -4,8 +4,11 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:intl/intl.dart';
 
+import '../config/app_colors.dart';
 import '../services/logger_service.dart';
+import '../services/theme_service.dart';
 import '../widgets/ErrorPopupWidget.dart';
+import '../config/api_config.dart';
 
 class HistoryScreen extends StatefulWidget {
   const HistoryScreen({super.key});
@@ -24,13 +27,14 @@ class _HistoryScreenState extends State<HistoryScreen> {
   String? _errorMessage;
   List<dynamic> _payments = [];
 
-  final String _apiUrl = 'https://admin.sniper-sarl.cloud/api/v1/payments';
   late final LoggerService _logger;
+  late final ThemeService _themeService;
 
   @override
   void initState() {
     super.initState();
     _logger = LoggerService();
+    _themeService = ThemeService();
     _logger.init().then((_) {
       _logger.info('HistoryScreen initialisé');
     });
@@ -65,7 +69,12 @@ class _HistoryScreenState extends State<HistoryScreen> {
     if (refresh) {
       _currentPage = 1;
       _hasMoreData = true;
-      if (mounted) setState(() { _isLoading = true; _errorMessage = null; });
+      if (mounted) {
+        setState(() {
+          if (_payments.isEmpty) _isLoading = true;
+          _errorMessage = null;
+        });
+      }
     }
 
     try {
@@ -77,7 +86,8 @@ class _HistoryScreenState extends State<HistoryScreen> {
         return;
       }
 
-      final url = Uri.parse('$_apiUrl?page=$_currentPage');
+      final url = Uri.parse('${ApiConfig.paymentsEndpoint}?page=$_currentPage');
+
       final response = await http.get(
         url,
         headers: {
@@ -100,7 +110,8 @@ class _HistoryScreenState extends State<HistoryScreen> {
           final attrs = item['attributes'] ?? {};
           return {
             "reference": attrs['provider_reference'] ?? item['id'],
-            "amount_cdf": attrs['amount']?.toString() ?? '0',
+            "currency": attrs['currency']?.toString().toUpperCase() ?? 'USD',
+            "amount_raw": attrs['amount']?.toString() ?? '0',
             "amount_usd": attrs['credited_usd']?.toString() ?? '0.00',
             "network": attrs['network']?.toString() ?? 'inconnu',
             "status": attrs['status']?.toString() ?? 'pending',
@@ -131,7 +142,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
         _logger.warning('Rate limit atteint sur l\'historique (429)');
         if (mounted) {
           setState(() {
-            if (refresh) _errorMessage = "Trop de requêtes. Veuillez patienter.";
+            if (refresh && _payments.isEmpty) _errorMessage = "Trop de requêtes. Veuillez patienter.";
             _isLoading = false;
             _isFetchingMore = false;
           });
@@ -149,7 +160,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
         _logger.warning('Erreur API Payments', data: {'status': response.statusCode});
         if (mounted) {
           setState(() {
-            if (refresh) _errorMessage = "Impossible de charger l'historique.";
+            if (refresh && _payments.isEmpty) _errorMessage = "Impossible de charger l'historique.";
             _isLoading = false;
             _isFetchingMore = false;
           });
@@ -159,7 +170,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
       _logger.error('Erreur réseau Payments', error: e, stackTrace: stackTrace);
       if (mounted) {
         setState(() {
-          if (refresh) _errorMessage = "Erreur de réseau.";
+          if (refresh && _payments.isEmpty) _errorMessage = "Erreur de réseau.";
           _isLoading = false;
           _isFetchingMore = false;
         });
@@ -181,17 +192,45 @@ class _HistoryScreenState extends State<HistoryScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFF0A0A1A),
-      body: _buildBody(),
+    final isDark = _themeService.isDarkMode;
+    final bgColor = isDark ? const Color(0xFF0F0F1A) : const Color(0xFFF8FAFC);
+    final cardBg = isDark ? const Color(0xFF1E1E2E) : const Color(0xFFFFFFFF);
+    final shadow = isDark ? AppColors.cardShadowDark : AppColors.cardShadow;
+    final textPrimary = isDark ? Colors.white : const Color(0xFF1A202C);
+    final textSecondary = isDark ? const Color(0xFFB0B0C0) : const Color(0xFF4A5568);
+    final textHint = isDark ? const Color(0xFF6B7280) : const Color(0xFFA0AEC0);
+    final inputBorder = isDark ? const Color(0xFF3D3D5C) : const Color(0xFFCBD5E1);
+    final errorColor = const Color(0xFFE53E3E);
+
+    return Container(
+      color: bgColor,
+      child: _buildBody(
+        isDark: isDark,
+        cardBg: cardBg,
+        shadow: shadow,
+        textPrimary: textPrimary,
+        textSecondary: textSecondary,
+        textHint: textHint,
+        inputBorder: inputBorder,
+        errorColor: errorColor,
+      ),
     );
   }
 
-  Widget _buildBody() {
+  Widget _buildBody({
+    required bool isDark,
+    required Color cardBg,
+    required List<BoxShadow> shadow,
+    required Color textPrimary,
+    required Color textSecondary,
+    required Color textHint,
+    required Color inputBorder,
+    required Color errorColor,
+  }) {
     if (_isLoading) {
       return const Center(
         child: CircularProgressIndicator(
-          color: Color(0xFF6C63FF),
+          color: Color(0xFF7CB342),
           strokeWidth: 3,
         ),
       );
@@ -202,17 +241,32 @@ class _HistoryScreenState extends State<HistoryScreen> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Icon(Icons.error_outline, size: 48, color: Color(0xFFFF6B6B)),
+            Icon(
+              Icons.error_outline,
+              size: 48,
+              color: errorColor,
+            ),
             const SizedBox(height: 16),
-            Text(_errorMessage!, style: const TextStyle(color: Colors.white, fontSize: 16)),
+            Text(
+              _errorMessage!,
+              style: TextStyle(
+                color: textPrimary,
+                fontSize: 16,
+              ),
+              textAlign: TextAlign.center,
+            ),
             const SizedBox(height: 16),
             ElevatedButton(
               onPressed: () => _fetchHistory(refresh: true),
               style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF6C63FF),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                backgroundColor: const Color(0xFF7CB342),
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                elevation: 0,
               ),
-              child: const Text('Réessayer', style: TextStyle(color: Colors.white)),
+              child: const Text('Réessayer'),
             )
           ],
         ),
@@ -224,11 +278,18 @@ class _HistoryScreenState extends State<HistoryScreen> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.receipt_long, size: 64, color: Colors.white.withOpacity(0.2)),
+            Icon(
+              Icons.receipt_long,
+              size: 64,
+              color: textHint,
+            ),
             const SizedBox(height: 16),
-            const Text(
+            Text(
               "Aucun paiement récent.",
-              style: TextStyle(color: Colors.white60, fontSize: 16),
+              style: TextStyle(
+                color: textSecondary,
+                fontSize: 16,
+              ),
             ),
           ],
         ),
@@ -237,9 +298,10 @@ class _HistoryScreenState extends State<HistoryScreen> {
 
     return RefreshIndicator(
       onRefresh: () => _fetchHistory(refresh: true),
-      color: const Color(0xFF6C63FF),
-      backgroundColor: const Color(0xFF1A1A2E),
+      color: const Color(0xFF7CB342),
+      backgroundColor: isDark ? const Color(0xFF1E1E2E) : Colors.white,
       child: ListView.builder(
+        physics: const AlwaysScrollableScrollPhysics(),
         controller: _scrollController,
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         itemCount: _payments.length + (_isFetchingMore ? 1 : 0),
@@ -248,36 +310,58 @@ class _HistoryScreenState extends State<HistoryScreen> {
             return const Padding(
               padding: EdgeInsets.symmetric(vertical: 20),
               child: Center(
-                child: CircularProgressIndicator(color: Color(0xFF6C63FF)),
+                child: CircularProgressIndicator(
+                  color: Color(0xFF7CB342),
+                  strokeWidth: 2.5,
+                ),
               ),
             );
           }
           return Padding(
-            padding: const EdgeInsets.only(bottom: 8),
-            child: _buildCompactNeonPaymentCard(_payments[index]),
+            padding: const EdgeInsets.only(bottom: 10),
+            child: _buildPaymentCard(
+              payment: _payments[index],
+              isDark: isDark,
+              cardBg: cardBg,
+              shadow: shadow,
+              textPrimary: textPrimary,
+              textSecondary: textSecondary,
+              textHint: textHint,
+              inputBorder: inputBorder,
+            ),
           );
         },
       ),
     );
   }
 
-  // ==================== CARTE COMPACTE STYLE NEON ====================
+  // ==================== CARTE PAIEMENT STYLE ÉLÉGANT ====================
 
-  Widget _buildCompactNeonPaymentCard(Map<String, dynamic> payment) {
-    final DateTime date = DateTime.tryParse(payment['date']) ?? DateTime.now();
-    final double amountCdf = double.tryParse(payment['amount_cdf']) ?? 0.0;
+  Widget _buildPaymentCard({
+    required Map<String, dynamic> payment,
+    required bool isDark,
+    required Color cardBg,
+    required List<BoxShadow> shadow,
+    required Color textPrimary,
+    required Color textSecondary,
+    required Color textHint,
+    required Color inputBorder,
+  }) {
+    final DateTime date = (DateTime.tryParse(payment['date']) ?? DateTime.now()).toLocal();
+    final String currency = payment['currency'] ?? 'USD';
+    final double amountRaw = double.tryParse(payment['amount_raw']) ?? 0.0;
     final double amountUsd = double.tryParse(payment['amount_usd']) ?? 0.0;
     final String operator = payment['network'].toString().toLowerCase();
 
     final String status = payment['status'].toString().toLowerCase().trim();
     final String statusLabel = payment['status_label']?.toString() ?? '';
 
-    // Couleurs Néon pour les opérateurs
-    Color operatorColor = const Color(0xFF6C63FF);
-    if (operator.contains('voda')) operatorColor = const Color(0xFFFF4B4B);
-    else if (operator.contains('airtel')) operatorColor = const Color(0xFFFF1744);
-    else if (operator.contains('orange')) operatorColor = const Color(0xFFFF9800);
-    else if (operator.contains('africell')) operatorColor = const Color(0xFF9C27B0);
+    // Couleurs pour les opérateurs
+    Color operatorColor = const Color(0xFF7CB342);
+    if (operator.contains('voda')) operatorColor = const Color(0xFFFF4B4B); // Rouge
+    else if (operator.contains('airtel')) operatorColor = const Color(0xFFFF1744); // Rouge clair
+    else if (operator.contains('orange')) operatorColor = const Color(0xFFFF9800); // Orange
+    else if (operator.contains('africell')) operatorColor = const Color(0xFF9C27B0); // Violet
 
     final isSuccess = ['completed', 'success', 'successful', 'paid', 'approved', 'done'].contains(status);
     final isPending = ['pending', 'processing', 'waiting', 'initiated'].contains(status);
@@ -287,63 +371,52 @@ class _HistoryScreenState extends State<HistoryScreen> {
 
     if (isSuccess) {
       displayStatus = statusLabel.isNotEmpty ? statusLabel : 'Réussi';
-      statusColor = const Color(0xFF4CAF50);
+      statusColor = const Color(0xFF38A169);
     } else if (isPending) {
       displayStatus = statusLabel.isNotEmpty ? statusLabel : 'En attente';
-      statusColor = const Color(0xFFFF9800);
+      statusColor = const Color(0xFFED8936);
     } else {
       displayStatus = statusLabel.isNotEmpty ? statusLabel : 'Échoué';
-      statusColor = const Color(0xFFFF6B6B);
+      statusColor = const Color(0xFFE53E3E);
     }
 
     final formatCdf = NumberFormat.currency(locale: 'fr_FR', symbol: 'CDF', decimalDigits: 0);
 
     return Container(
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            Colors.white.withOpacity(0.08),
-            Colors.white.withOpacity(0.02),
-          ],
-        ),
+        color: cardBg,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: operatorColor.withOpacity(0.25),
-          width: 1.2,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: operatorColor.withOpacity(0.12),
-            blurRadius: 15,
-            spreadRadius: 1,
-          ),
-        ],
+        boxShadow: shadow,
       ),
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         child: Column(
           children: [
             // Ligne 1: Date + Statut
             Row(
               children: [
+                Icon(
+                  Icons.calendar_today,
+                  size: 14,
+                  color: textHint,
+                ),
+                const SizedBox(width: 8),
                 Text(
                   DateFormat('dd/MM/yyyy HH:mm').format(date),
                   style: TextStyle(
-                    color: Colors.white.withOpacity(0.5),
-                    fontSize: 11,
+                    color: textHint,
+                    fontSize: 12,
                     fontWeight: FontWeight.w500,
                   ),
                 ),
                 const Spacer(),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                   decoration: BoxDecoration(
-                    color: statusColor.withOpacity(0.12),
+                    color: statusColor.withOpacity(0.1),
                     borderRadius: BorderRadius.circular(10),
                     border: Border.all(
-                      color: statusColor.withOpacity(0.2),
+                      color: statusColor.withOpacity(0.3),
                       width: 1,
                     ),
                   ),
@@ -351,72 +424,98 @@ class _HistoryScreenState extends State<HistoryScreen> {
                     displayStatus,
                     style: TextStyle(
                       color: statusColor,
-                      fontSize: 10,
-                      fontWeight: FontWeight.bold,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            // Ligne 2: Montant + Opérateur
+            Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      if (currency == 'CDF') ...[
+                        Text(
+                          formatCdf.format(amountRaw),
+                          style: TextStyle(
+                            fontWeight: FontWeight.w600,
+                            fontSize: 17,
+                            color: textPrimary,
+                          ),
+                        ),
+                        Text(
+                          '~ \$${amountUsd.toStringAsFixed(2)}',
+                          style: TextStyle(
+                            color: operatorColor.withOpacity(0.7),
+                            fontSize: 13,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ] else ...[
+                        Text(
+                          '\$${amountRaw.toStringAsFixed(2)}',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w600,
+                            fontSize: 17,
+                            color: textPrimary,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+                // 👇 LE NOUVEAU BADGE OPÉRATEUR TEXTUEL
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: operatorColor.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(
+                      color: operatorColor.withOpacity(0.4),
+                      width: 1,
+                    ),
+                  ),
+                  child: Text(
+                    _getNetworkLabel(operator),
+                    style: TextStyle(
+                      color: operatorColor,
+                      fontWeight: FontWeight.w800,
+                      fontSize: 11,
+                      letterSpacing: 0.5,
                     ),
                   ),
                 ),
               ],
             ),
             const SizedBox(height: 8),
-            // Ligne 2: Montant + Opérateur
-            Row(
-              children: [
-                // Montant
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        formatCdf.format(amountCdf),
-                        style: const TextStyle(
-                          fontWeight: FontWeight.bold,
-                          fontSize: 16,
-                          color: Colors.white,
-                        ),
-                      ),
-                      Text(
-                        '~ \$${amountUsd.toStringAsFixed(2)}',
-                        style: TextStyle(
-                          color: operatorColor.withOpacity(0.7),
-                          fontSize: 12,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                // Icône opérateur
-                Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: [operatorColor.withOpacity(0.6), operatorColor.withOpacity(0.2)],
-                    ),
-                    shape: BoxShape.circle,
-                  ),
-                  child: Icon(
-                    _getOperatorIcon(operator),
-                    color: Colors.white,
-                    size: 18,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 6),
             // Ligne 3: Référence
-            Row(
-              children: [
-                Text(
-                  'Réf: ${payment['reference']}',
-                  style: TextStyle(
-                    color: Colors.white.withOpacity(0.3),
-                    fontSize: 10,
-                    fontFamily: 'monospace',
+            Container(
+              padding: const EdgeInsets.symmetric(vertical: 4),
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.receipt_outlined,
+                    size: 12,
+                    color: textHint,
                   ),
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ],
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      'Réf: ${payment['reference']}',
+                      style: TextStyle(
+                        color: textHint,
+                        fontSize: 10,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
+              ),
             ),
           ],
         ),
@@ -424,11 +523,15 @@ class _HistoryScreenState extends State<HistoryScreen> {
     );
   }
 
-  IconData _getOperatorIcon(String operator) {
-    if (operator.contains('voda')) return Icons.signal_cellular_4_bar;
-    if (operator.contains('airtel')) return Icons.wifi;
-    if (operator.contains('orange')) return Icons.circle;
-    if (operator.contains('africell')) return Icons.signal_wifi_4_bar;
-    return Icons.cell_tower;
+  // 👇 FONCTION POUR FORMATER LE NOM DU RÉSEAU
+  String _getNetworkLabel(String operator) {
+    if (operator.isEmpty || operator == 'inconnu') return 'Inconnu';
+    if (operator.contains('voda')) return 'Vodacom';
+    if (operator.contains('airtel')) return 'Airtel';
+    if (operator.contains('orange')) return 'Orange';
+    if (operator.contains('africell')) return 'Africell';
+
+    // Si c'est un autre réseau non géré manuellement, on met juste la première lettre en majuscule
+    return operator[0].toUpperCase() + operator.substring(1);
   }
 }

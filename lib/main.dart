@@ -1,36 +1,39 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
-import 'package:sniper/screens/activation_screen.dart';
+// 👇 1. Ajoute cet import pour les dates
+import 'package:intl/date_symbol_data_local.dart';
+
 import 'package:sniper/screens/auth_check_screen.dart';
-import 'screens/dashboard_screen.dart';
-import 'theme/app_theme.dart';
+import 'package:sniper/services/theme_service.dart';
+import 'package:sniper/theme/app_theme.dart'; // Pour le thème par défaut
 
-import 'package:intl/date_symbol_data_local.dart'; // Import crucial
-import 'package:intl/intl.dart';
-
-// AJOUTE LE MOT-CLÉ "async" ICI
+// 👇 2. Ajoute "async" à ta fonction main
 void main() async {
-  // Assure-toi que les bindings sont initialisés
+  // 👇 3. Assure-toi que Flutter est bien initialisé avant de lancer des fonctions asynchrones
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Initialise les données de localisation pour le français
+  // 👇 4. Initialise les données locales pour le français
   await initializeDateFormatting('fr_FR', null);
 
-  runApp(const MyApp());
+  // 👇 5. Charger le thème sauvegardé
+  final themeService = ThemeService();
+  await themeService.loadTheme();
+
+  runApp(MyApp(themeService: themeService));
 }
 
 class MyApp extends StatelessWidget {
-  const MyApp({super.key});
+  final ThemeService themeService;
+
+  const MyApp({super.key, required this.themeService});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Payment App',
-      theme: AppTheme.lightTheme,
-
-      // L'application démarre ICI :
-      home: const AuthCheckScreen(),
+      title: 'Sniper App',
       debugShowCheckedModeBanner: false,
+      theme: themeService.getThemeData(),
+      // 👇 Garde AuthCheckScreen comme page d'accueil
+      home: const AuthCheckScreen(),
     );
   }
 }

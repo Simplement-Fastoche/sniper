@@ -1,7 +1,7 @@
 name: sniper
 description: "A new Flutter project."
 
-version: 1.0.0+1
+version: 1.0.8+9
 
 environment:
   sdk: ^3.11.5
@@ -16,9 +16,9 @@ dependencies:
   package_info_plus: ^8.0.0 # Pour récupérer la version de l'app automatiquement
   uuid: ^4.3.3              # Pour générer l'installation_id la première fois
   intl: ^0.18.0
-  path_provider: ^2.1.1
-  permission_handler: ^11.0.1
-  change_app_package_name: ^1.5.0
+  path_provider: ^2.1.6
+  flutter_secure_storage: ^9.0.0
+  open_filex: ^4.7.0
 
 dev_dependencies:
   flutter_test:
@@ -30,13 +30,16 @@ flutter:
   uses-material-design: true
 
   assets:
+    - assets/images/sniper_logo.png  # Utilise des slashes (Unix)
+
+
 
 
 
 flutter_launcher_icons:
   android: "launcher_icon"
   ios: true
-  image_path: "assets/images/logo.png"
+  image_path: "assets/images/sniper_logo.png"
   adaptive_icon_background: "#FFFFFF"
 
 

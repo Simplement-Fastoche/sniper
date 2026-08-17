@@ -3,9 +3,12 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:intl/intl.dart';
+import 'package:sniper/screens/payment_screen.dart';
 
+import '../config/app_colors.dart';
 import '../services/logger_service.dart';
-import '../widgets/ErrorPopupWidget.dart';
+import '../services/theme_service.dart';
+import '../config/api_config.dart';
 
 class ScheduleScreen extends StatefulWidget {
   const ScheduleScreen({super.key});
@@ -20,14 +23,15 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
   List<Map<String, dynamic>> _schedule = [];
 
   final bool _useMockApi = false;
-  final String _apiUrl = 'https://admin.sniper-sarl.cloud/api/v1/schedule';
 
   late final LoggerService _logger;
+  late final ThemeService _themeService;
 
   @override
   void initState() {
     super.initState();
     _logger = LoggerService();
+    _themeService = ThemeService();
     _logger.init().then((_) {
       _logger.info('ScheduleScreen initialisé');
     });
@@ -47,7 +51,7 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
           _errorMessage = "Session expirée. Veuillez vous reconnecter.";
           _isLoading = false;
         });
-        _showError('Session expirée', 'Votre session a expiré. Veuillez vous reconnecter.');
+
         return;
       }
 
@@ -102,7 +106,7 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
         });
       } else {
         final response = await http.get(
-          Uri.parse(_apiUrl),
+          Uri.parse(ApiConfig.scheduleEndpoint),
           headers: {
             'Accept': 'application/vnd.api+json',
             'Authorization': 'Bearer $token',
@@ -147,7 +151,6 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
             _errorMessage = "Erreur de traitement des données.";
             _isLoading = false;
           });
-          _showError('Erreur de données', 'Impossible de lire les échéances.', onRetry: _fetchSchedule);
         }
       } else if (statusCode == 429) {
         _logger.warning('Rate limit atteint sur Schedule (429)');
@@ -155,21 +158,18 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
           _errorMessage = "Trop de requêtes. Veuillez patienter.";
           _isLoading = false;
         });
-        _showError('Trop de tentatives', 'Veuillez patienter quelques instants avant de rafraîchir l\'échéancier.', onRetry: _fetchSchedule);
       } else if (statusCode == 401 || statusCode == 403) {
         _logger.warning('Accès refusé ($statusCode)');
         setState(() {
           _errorMessage = "Session expirée ou accès refusé.";
           _isLoading = false;
         });
-        _showError('Accès refusé', 'Votre session a expiré. Veuillez vous reconnecter.');
       } else {
         _logger.warning('Erreur API Schedule', data: {'status': statusCode});
         setState(() {
           _errorMessage = "Impossible de charger l'échéancier.";
           _isLoading = false;
         });
-        _showError('Erreur serveur', 'Le serveur a renvoyé une erreur (Code: $statusCode).', onRetry: _fetchSchedule);
       }
     } catch (e, stackTrace) {
       _logger.error('Erreur réseau Schedule', error: e, stackTrace: stackTrace);
@@ -177,35 +177,50 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
         _errorMessage = "Erreur de connexion au serveur.";
         _isLoading = false;
       });
-      _showError('Erreur de connexion', 'Impossible de joindre le serveur. Vérifiez votre connexion internet.', onRetry: _fetchSchedule);
-    }
-  }
-
-  void _showError(String title, String message, {VoidCallback? onRetry}) {
-    if (mounted) {
-      ErrorPopupWidget.showErrorDialog(
-        context,
-        title: title,
-        message: message,
-        showAllLogs: false,
-        onRetry: onRetry,
-      );
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    final isDark = _themeService.isDarkMode;
+    final bgColor = isDark ? const Color(0xFF0F0F1A) : const Color(0xFFF8FAFC);
+    final cardBg = isDark ? const Color(0xFF1E1E2E) : const Color(0xFFFFFFFF);
+    final shadow = isDark ? AppColors.cardShadowDark : AppColors.cardShadow;
+    final textPrimary = isDark ? Colors.white : const Color(0xFF1A202C);
+    final textSecondary = isDark ? const Color(0xFFB0B0C0) : const Color(0xFF4A5568);
+    final textHint = isDark ? const Color(0xFF6B7280) : const Color(0xFFA0AEC0);
+    final inputBorder = isDark ? const Color(0xFF3D3D5C) : const Color(0xFFCBD5E1);
+    final errorColor = const Color(0xFFE53E3E);
+
     return Container(
-      color: const Color(0xFF0A0A1A),
-      child: _buildBody(),
+      color: bgColor,
+      child: _buildBody(
+        isDark: isDark,
+        cardBg: cardBg,
+        shadow: shadow,
+        textPrimary: textPrimary,
+        textSecondary: textSecondary,
+        textHint: textHint,
+        inputBorder: inputBorder,
+        errorColor: errorColor,
+      ),
     );
   }
 
-  Widget _buildBody() {
+  Widget _buildBody({
+    required bool isDark,
+    required Color cardBg,
+    required List<BoxShadow> shadow,
+    required Color textPrimary,
+    required Color textSecondary,
+    required Color textHint,
+    required Color inputBorder,
+    required Color errorColor,
+  }) {
     if (_isLoading) {
       return const Center(
         child: CircularProgressIndicator(
-          color: Color(0xFF6C63FF),
+          color: Color(0xFF7CB342),
           strokeWidth: 3,
         ),
       );
@@ -216,9 +231,20 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Icon(Icons.error_outline, size: 48, color: Color(0xFFFF6B6B)),
+            Icon(
+              Icons.error_outline,
+              size: 48,
+              color: errorColor,
+            ),
             const SizedBox(height: 16),
-            Text(_errorMessage!, style: const TextStyle(color: Colors.white, fontSize: 16)),
+            Text(
+              _errorMessage!,
+              style: TextStyle(
+                color: textPrimary,
+                fontSize: 16,
+              ),
+              textAlign: TextAlign.center,
+            ),
             const SizedBox(height: 16),
             ElevatedButton(
               onPressed: () {
@@ -229,10 +255,14 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
                 _fetchSchedule();
               },
               style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF6C63FF),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                backgroundColor: const Color(0xFF7CB342),
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                elevation: 0,
               ),
-              child: const Text('Réessayer', style: TextStyle(color: Colors.white)),
+              child: const Text('Réessayer'),
             ),
           ],
         ),
@@ -244,11 +274,18 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.calendar_today, size: 64, color: Colors.white.withOpacity(0.2)),
+            Icon(
+              Icons.calendar_today,
+              size: 64,
+              color: textHint,
+            ),
             const SizedBox(height: 16),
-            const Text(
+            Text(
               "Aucune échéance trouvée.",
-              style: TextStyle(color: Colors.white60, fontSize: 16),
+              style: TextStyle(
+                color: textSecondary,
+                fontSize: 16,
+              ),
             ),
           ],
         ),
@@ -257,8 +294,8 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
 
     return RefreshIndicator(
       onRefresh: _fetchSchedule,
-      color: const Color(0xFF6C63FF),
-      backgroundColor: const Color(0xFF1A1A2E),
+      color: const Color(0xFF7CB342),
+      backgroundColor: isDark ? const Color(0xFF1E1E2E) : Colors.white,
       child: ListView.builder(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         itemCount: _schedule.length,
@@ -266,80 +303,78 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
           final item = _schedule[index];
           return Padding(
             padding: const EdgeInsets.only(bottom: 10),
-            child: _buildCompactNeonScheduleCard(item),
+            child: _buildScheduleCard(
+              item: item,
+              isDark: isDark,
+              cardBg: cardBg,
+              shadow: shadow,
+              textPrimary: textPrimary,
+              textSecondary: textSecondary,
+              textHint: textHint,
+              inputBorder: inputBorder,
+            ),
           );
         },
       ),
     );
   }
 
-  // ==================== CARTE COMPACTE STYLE NEON ====================
-
-  Widget _buildCompactNeonScheduleCard(Map<String, dynamic> item) {
-    final DateTime date = item['due_at'] != null ? DateTime.parse(item['due_at']) : DateTime.now();
+  // ==================== CARTE SCHEDULE STYLE ÉLÉGANT ====================
+  Widget _buildScheduleCard({
+    required Map<String, dynamic> item,
+    required bool isDark,
+    required Color cardBg,
+    required List<BoxShadow> shadow,
+    required Color textPrimary,
+    required Color textSecondary,
+    required Color textHint,
+    required Color inputBorder,
+  }) {
+    // 👇 CONVERSION ICI AVEC .toLocal()
+    final DateTime date = item['due_at'] != null ? DateTime.parse(item['due_at']).toLocal() : DateTime.now();
     final double montant = double.tryParse(item['amount_usd']?.toString() ?? '0') ?? 0.0;
     final double paye = double.tryParse(item['paid_usd']?.toString() ?? '0') ?? 0.0;
     final double reste = double.tryParse(item['remaining_usd']?.toString() ?? '0') ?? 0.0;
-
-    final String statut = item['status']?.toString() ?? 'pending';
-    final String statusLabel = item['status_label']?.toString() ?? '';
     final int sequence = int.tryParse(item['sequence']?.toString() ?? '0') ?? 0;
 
     Color statusColor;
     String text;
     IconData icon;
 
-    switch (statut.toLowerCase()) {
-      case 'paid':
-        statusColor = const Color(0xFF4CAF50);
-        text = 'Payé';
-        icon = Icons.check_circle;
-        break;
-      case 'partial':
-        statusColor = const Color(0xFFFF9800);
-        text = 'Partiel';
-        icon = Icons.timelapse;
-        break;
-      case 'overdue':
-        statusColor = const Color(0xFFFF6B6B);
-        text = 'En retard';
-        icon = Icons.warning;
-        break;
-      case 'pending':
-      default:
-        statusColor = const Color(0xFF6C63FF);
-        text = 'En attente';
-        icon = Icons.schedule;
-        break;
+    final now = DateTime.now();
+    final isOverdue = DateTime(now.year, now.month, now.day).isAfter(DateTime(date.year, date.month, date.day));
+
+    if (paye >= montant && montant > 0) {
+      statusColor = const Color(0xFF38A169); // Vert
+      text = 'Payé';
+      icon = Icons.check_circle;
+    } else if (isOverdue) {
+      statusColor = const Color(0xFFE53E3E); // Rouge
+      text = 'En retard';
+      icon = Icons.warning;
+    } else if (paye > 0) {
+      statusColor = const Color(0xFFF59E0B); // Jaune/Ambré
+      text = 'Partiellement payé';
+      icon = Icons.timelapse;
+    } else {
+      statusColor = const Color(0xFF3182CE); // Bleu
+      text = 'À payer';
+      icon = Icons.schedule;
     }
 
-    final finalText = statusLabel.isNotEmpty ? statusLabel : text;
+    String dayName = DateFormat('EEEE', 'fr_FR').format(date);
+    if (dayName.isNotEmpty) {
+      dayName = '${dayName[0].toUpperCase()}${dayName.substring(1)}';
+    }
 
     return Container(
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            Colors.white.withOpacity(0.08),
-            Colors.white.withOpacity(0.02),
-          ],
-        ),
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(
-          color: statusColor.withOpacity(0.25),
-          width: 1.2,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: statusColor.withOpacity(0.15),
-            blurRadius: 20,
-            spreadRadius: 1,
-          ),
-        ],
+        color: cardBg,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: shadow,
       ),
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
         child: Column(
           children: [
             // Ligne 1: Séquence + Date + Statut
@@ -347,18 +382,17 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
               children: [
                 // Numéro de séquence
                 Container(
-                  width: 32,
-                  height: 32,
+                  width: 36,
+                  height: 36,
                   decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: [statusColor, statusColor.withOpacity(0.5)],
+                    gradient: const LinearGradient(
+                      colors: [Color(0xFF7CB342), Color(0xFF558B2F)],
                     ),
-                    borderRadius: BorderRadius.circular(8),
+                    borderRadius: BorderRadius.circular(10),
                     boxShadow: [
                       BoxShadow(
-                        color: statusColor.withOpacity(0.3),
+                        color: const Color(0xFF7CB342).withOpacity(0.3),
                         blurRadius: 10,
-                        spreadRadius: 1,
                       ),
                     ],
                   ),
@@ -368,7 +402,7 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
                       style: const TextStyle(
                         fontWeight: FontWeight.bold,
                         color: Colors.white,
-                        fontSize: 13,
+                        fontSize: 14,
                       ),
                     ),
                   ),
@@ -381,49 +415,44 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
                     children: [
                       Text(
                         DateFormat('dd/MM/yyyy').format(date),
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontWeight: FontWeight.w600,
-                          fontSize: 14,
-                          color: Colors.white,
+                          fontSize: 15,
+                          color: textPrimary,
                         ),
                       ),
                       Text(
-                        DateFormat('EEEE').format(date),
+                        dayName,
                         style: TextStyle(
-                          fontSize: 10,
-                          color: Colors.white.withOpacity(0.4),
+                          fontSize: 11,
+                          color: textHint,
                         ),
                       ),
                     ],
                   ),
                 ),
-                // Statut
+                // Statut (BADGE)
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
                   decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: [
-                        statusColor.withOpacity(0.15),
-                        statusColor.withOpacity(0.05),
-                      ],
-                    ),
+                    color: statusColor.withOpacity(0.1),
                     borderRadius: BorderRadius.circular(12),
                     border: Border.all(
-                      color: statusColor.withOpacity(0.2),
+                      color: statusColor.withOpacity(0.3),
                       width: 1,
                     ),
                   ),
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(icon, size: 12, color: statusColor),
-                      const SizedBox(width: 4),
+                      Icon(icon, size: 14, color: statusColor),
+                      const SizedBox(width: 6),
                       Text(
-                        finalText,
+                        text,
                         style: TextStyle(
                           color: statusColor,
-                          fontSize: 10,
-                          fontWeight: FontWeight.bold,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
                         ),
                       ),
                     ],
@@ -431,15 +460,30 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
                 ),
               ],
             ),
-            const SizedBox(height: 10),
+            const SizedBox(height: 12),
             // Ligne 2: Montants
             Row(
               children: [
-                _buildCompactAmount('Total', montant, Colors.white),
+                _buildAmountItem(
+                  label: 'Total',
+                  amount: montant,
+                  color: textPrimary,
+                  textHint: textHint,
+                ),
                 const SizedBox(width: 16),
-                _buildCompactAmount('Payé', paye, const Color(0xFF4CAF50)),
+                _buildAmountItem(
+                  label: 'Payé',
+                  amount: paye,
+                  color: const Color(0xFF38A169),
+                  textHint: textHint,
+                ),
                 const SizedBox(width: 16),
-                _buildCompactAmount('Reste', reste, reste > 0 ? statusColor : Colors.white.withOpacity(0.3)),
+                _buildAmountItem(
+                  label: 'Reste',
+                  amount: reste,
+                  color: reste > 0 ? statusColor : textHint.withOpacity(0.5),
+                  textHint: textHint,
+                ),
               ],
             ),
             // Barre de progression
@@ -449,11 +493,23 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
                 borderRadius: BorderRadius.circular(4),
                 child: LinearProgressIndicator(
                   value: (paye / montant).clamp(0.0, 1.0),
-                  backgroundColor: Colors.white.withOpacity(0.1),
+                  backgroundColor: isDark ? Colors.white.withOpacity(0.1) : const Color(0xFFCBD5E1),
                   valueColor: AlwaysStoppedAnimation<Color>(
-                    paye >= montant ? const Color(0xFF4CAF50) : statusColor,
+                    paye >= montant ? const Color(0xFF38A169) : statusColor,
                   ),
                   minHeight: 4,
+                ),
+              ),
+              // Pourcentage
+              Align(
+                alignment: Alignment.centerRight,
+                child: Text(
+                  '${((paye / montant) * 100).toStringAsFixed(0)}%',
+                  style: TextStyle(
+                    fontSize: 10,
+                    color: textHint,
+                    fontWeight: FontWeight.w500,
+                  ),
                 ),
               ),
             ],
@@ -463,9 +519,12 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
     );
   }
 
-  Widget _buildCompactAmount(String label, double amount, Color color) {
-    final bool hasGlow = color != Colors.white && color != Colors.white.withOpacity(0.3);
-
+  Widget _buildAmountItem({
+    required String label,
+    required double amount,
+    required Color color,
+    required Color textHint,
+  }) {
     return Expanded(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -473,8 +532,8 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
           Text(
             label,
             style: TextStyle(
-              fontSize: 9,
-              color: Colors.white.withOpacity(0.4),
+              fontSize: 10,
+              color: textHint,
               fontWeight: FontWeight.w500,
             ),
           ),
@@ -482,15 +541,9 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
           Text(
             '${amount.toStringAsFixed(2)} \$',
             style: TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.bold,
+              fontSize: 14,
+              fontWeight: FontWeight.w600,
               color: color,
-              shadows: hasGlow ? [
-                Shadow(
-                  color: color.withOpacity(0.3),
-                  blurRadius: 6,
-                ),
-              ] : null,
             ),
           ),
         ],

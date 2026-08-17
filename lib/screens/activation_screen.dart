@@ -1,9 +1,15 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:sniper/screens/update_screen.dart';
 import 'package:uuid/uuid.dart';
 
+import '../config/api_config.dart';
+import '../config/app_colors.dart';
+import '../services/secure_storage_service.dart';
 import 'dashboard_screen.dart';
 import '../services/logger_service.dart';
 
@@ -25,11 +31,9 @@ class _ActivationScreenState extends State<ActivationScreen> {
   String? _imeiError;
 
   bool _isLoading = false;
-  String? _generalErrorMessage; // Pour les erreurs serveur
+  String? _generalErrorMessage;
 
   final bool _useMockApi = false;
-  final String _apiUrl = 'https://admin.sniper-sarl.cloud/api/v1/auth/activate';
-
   late final LoggerService _logger;
 
   @override
@@ -40,7 +44,6 @@ class _ActivationScreenState extends State<ActivationScreen> {
       _logger.info('ActivationScreen initialisé');
     });
 
-    // Ajout des listeners pour la validation en temps réel
     _contractController.addListener(_validateContract);
     _codeController.addListener(_validateCode);
     _imeiController.addListener(_validateImei);
@@ -144,12 +147,15 @@ class _ActivationScreenState extends State<ActivationScreen> {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(message),
-        backgroundColor: isError ? Colors.red.shade800 : Colors.green.shade700,
+        content: Text(
+          message,
+          style: const TextStyle(color: Colors.white),
+        ),
+        backgroundColor: isError ? AppColors.error : AppColors.success,
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         margin: const EdgeInsets.all(16),
-        duration: const Duration(seconds: 5), // 👈 5 secondes
+        duration: const Duration(seconds: 5),
         action: SnackBarAction(
           label: 'OK',
           textColor: Colors.white,
@@ -159,16 +165,13 @@ class _ActivationScreenState extends State<ActivationScreen> {
     );
   }
 
-
-
   Future<void> _activateApp() async {
-    // 1. Validation des champs
     if (!_validateFields()) {
       _scrollToError();
       return;
     }
 
-    final contract = _contractController.text.trim();
+    final contract = _contractController.text.trim().toUpperCase();
     final code = _codeController.text.trim();
     final imeiSuffix = _imeiController.text.trim();
 
@@ -181,7 +184,7 @@ class _ActivationScreenState extends State<ActivationScreen> {
       final installationId = await _getInstallationId();
 
       final response = await http.post(
-        Uri.parse(_apiUrl),
+        Uri.parse(ApiConfig.activateEndpoint),
         headers: {
           'Content-Type': 'application/json',
           'Accept': 'application/vnd.api+json',
@@ -203,37 +206,27 @@ class _ActivationScreenState extends State<ActivationScreen> {
 
           final prefs = await SharedPreferences.getInstance();
           await prefs.setString('auth_token', token);
+          await SecureStorageService.saveSecureData(token, installationId);
 
           if (mounted) {
-            // 👈 SOLUTION 1: Naviguer d'abord, puis afficher le SnackBar
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: const Text(
+                  '✅ Activation réussie !',
+                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                ),
+                backgroundColor: AppColors.success,
+                behavior: SnackBarBehavior.floating,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                margin: const EdgeInsets.all(16),
+                duration: const Duration(seconds: 4),
+              ),
+            );
+
             Navigator.pushReplacement(
               context,
               MaterialPageRoute(builder: (_) => const DashboardScreen()),
             );
-
-            // Attendre que la navigation soit terminée
-            await Future.delayed(const Duration(milliseconds: 300));
-
-            // Afficher le SnackBar sur le nouveau contexte
-            if (mounted) {
-              // Récupérer le nouveau contexte
-              final dashboardContext = context;
-              ScaffoldMessenger.of(dashboardContext).showSnackBar(
-                SnackBar(
-                  content: const Text('✅ Activation réussie !'),
-                  backgroundColor: Colors.green.shade700,
-                  behavior: SnackBarBehavior.floating,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                  margin: const EdgeInsets.all(16),
-                  duration: const Duration(seconds: 5),
-                  action: SnackBarAction(
-                    label: 'OK',
-                    textColor: Colors.white,
-                    onPressed: () => ScaffoldMessenger.of(dashboardContext).hideCurrentSnackBar(),
-                  ),
-                ),
-              );
-            }
           }
         } catch (e) {
           _logger.error('Erreur de décodage', error: e);
@@ -241,7 +234,6 @@ class _ActivationScreenState extends State<ActivationScreen> {
           _showSnackBar('Erreur de traitement des données');
         }
       } else {
-        // Gestion des erreurs serveur
         try {
           if (response.statusCode == 429) {
             setState(() => _generalErrorMessage = 'Trop de tentatives. Patientez quelques minutes.');
@@ -260,7 +252,6 @@ class _ActivationScreenState extends State<ActivationScreen> {
 
           setState(() => _generalErrorMessage = errorMessage);
           _showSnackBar(errorMessage);
-
         } catch (e) {
           setState(() => _generalErrorMessage = 'Erreur serveur (Code ${response.statusCode})');
           _showSnackBar('Erreur serveur (Code ${response.statusCode})');
@@ -275,10 +266,7 @@ class _ActivationScreenState extends State<ActivationScreen> {
     }
   }
 
-  void _scrollToError() {
-    // Vous pouvez implémenter un scroll vers le champ en erreur
-    // avec un ScrollController si nécessaire
-  }
+  void _scrollToError() {}
 
   @override
   void dispose() {
@@ -288,98 +276,126 @@ class _ActivationScreenState extends State<ActivationScreen> {
     super.dispose();
   }
 
-  // ============ UI ============
+  // ============ UI ADAPTATIVE (Clair / Sombre) ============
 
-  Widget _buildNeonCard({required Widget child, required Color glowColor}) {
+  Widget _buildCard({
+    required Widget child,
+    required Color cardBg,
+    required List<BoxShadow> shadow,
+  }) {
     return Container(
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            Colors.white.withOpacity(0.08),
-            Colors.white.withOpacity(0.02),
-          ],
-        ),
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: glowColor.withOpacity(0.3), width: 1.5),
-        boxShadow: [
-          BoxShadow(
-            color: glowColor.withOpacity(0.2),
-            blurRadius: 40,
-            spreadRadius: 2,
-          ),
-        ],
+        color: cardBg,
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: shadow,
       ),
-      child: Padding(padding: const EdgeInsets.all(24), child: child),
+      child: Padding(
+        padding: const EdgeInsets.all(28),
+        child: child,
+      ),
     );
   }
 
-  InputDecoration _neonInputDecoration({
+  InputDecoration _buildInputDecoration({
     required String labelText,
     required String hintText,
     required IconData icon,
     String? errorText,
+    required Color textHint,
+    required Color inputBg,
+    required Color inputBorderColor,
   }) {
     return InputDecoration(
       labelText: labelText,
       hintText: hintText,
-      labelStyle: TextStyle(color: errorText != null ? Colors.red.shade300 : Colors.white60, fontSize: 14),
-      hintStyle: TextStyle(color: Colors.white.withOpacity(0.3), fontSize: 13),
+      labelStyle: TextStyle(
+        color: errorText != null ? AppColors.error : textHint,
+        fontSize: 14,
+        fontWeight: FontWeight.w500,
+      ),
+      hintStyle: TextStyle(
+        color: textHint,
+        fontSize: 13,
+      ),
       errorText: errorText,
-      errorStyle: TextStyle(color: Colors.red.shade300, fontSize: 12),
+      errorStyle: const TextStyle(
+        color: AppColors.error,
+        fontSize: 12,
+        fontWeight: FontWeight.w500,
+      ),
       errorMaxLines: 2,
       filled: true,
-      fillColor: errorText != null
-          ? Colors.red.withOpacity(0.08)
-          : Colors.white.withOpacity(0.05),
-      prefixIcon: Icon(icon, color: errorText != null ? Colors.red.shade300 : const Color(0xFF6C63FF), size: 22),
-      counterStyle: const TextStyle(color: Colors.white54),
+      fillColor: inputBg,
+      prefixIcon: Icon(
+        icon,
+        color: errorText != null ? AppColors.error : AppColors.primary,
+        size: 22,
+      ),
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(14),
+        borderSide: BorderSide(color: inputBorderColor),
+      ),
       enabledBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(14),
         borderSide: BorderSide(
-          color: errorText != null ? Colors.red.shade300 : Colors.white.withOpacity(0.1),
+          color: errorText != null ? AppColors.error : inputBorderColor,
         ),
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(14),
         borderSide: BorderSide(
-          color: errorText != null ? Colors.red.shade300 : const Color(0xFF6C63FF),
-          width: 1.5,
+          color: errorText != null ? AppColors.error : AppColors.inputFocus,
+          width: 2,
         ),
       ),
       errorBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(14),
-        borderSide: BorderSide(color: Colors.red.shade300, width: 1.5),
+        borderSide: const BorderSide(color: AppColors.error, width: 2),
       ),
       focusedErrorBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(14),
-        borderSide: BorderSide(color: Colors.red.shade300, width: 2),
+        borderSide: const BorderSide(color: AppColors.error, width: 2),
+      ),
+      contentPadding: const EdgeInsets.symmetric(
+        horizontal: 16,
+        vertical: 16,
       ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
+    // 👇 DÉTECTION DU MODE SOMBRE ET DÉFINITION DES COULEURS DYNAMIQUES
+    final isDark = MediaQuery.of(context).platformBrightness == Brightness.dark;
+
+    final bgColor = isDark ? const Color(0xFF0F0F1A) : AppColors.background;
+    final cardBg = isDark ? const Color(0xFF1E1E2E) : AppColors.cardBackground;
+    final shadow = isDark ? AppColors.cardShadowDark : AppColors.cardShadow;
+    final textPrimary = isDark ? Colors.white : AppColors.textPrimary;
+    final textSecondary = isDark ? const Color(0xFFB0B0C0) : AppColors.textSecondary;
+    final textHint = isDark ? const Color(0xFF6B7280) : AppColors.textHint;
+    final inputBg = isDark ? const Color(0xFF2D2D44) : AppColors.inputBackground;
+    final inputBorderColor = isDark ? const Color(0xFF3D3D5C) : AppColors.inputBorder;
+    final errorBoxBg = isDark ? AppColors.error.withOpacity(0.15) : AppColors.errorLight;
+
     return Scaffold(
-      backgroundColor: const Color(0xFF0A0A1A),
+      backgroundColor: bgColor,
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
         centerTitle: true,
-        title: const Text(
+        title: Text(
           'Activation',
           style: TextStyle(
-            color: Colors.white,
-            fontWeight: FontWeight.bold,
+            color: textPrimary,
+            fontWeight: FontWeight.w600,
             fontSize: 22,
-            shadows: [Shadow(color: Color(0xFF6C63FF), blurRadius: 10)],
           ),
         ),
+        iconTheme: IconThemeData(color: textPrimary),
       ),
       body: LayoutBuilder(
         builder: (context, constraints) {
-          // Calculer la hauteur disponible (hauteur totale - AppBar)
           final availableHeight = constraints.maxHeight;
 
           return SingleChildScrollView(
@@ -394,33 +410,51 @@ class _ActivationScreenState extends State<ActivationScreen> {
                   mainAxisAlignment: MainAxisAlignment.center,
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    // Espace flexible pour centrer
                     const Spacer(),
 
-                    // Icône
+                    // Icône avec dégradé
                     Center(
                       child: Container(
-                        padding: const EdgeInsets.all(16),
+                        padding: const EdgeInsets.all(18),
                         decoration: BoxDecoration(
-                          color: const Color(0xFF6C63FF).withOpacity(0.1),
+                          gradient: AppColors.iconGradient,
                           shape: BoxShape.circle,
                           boxShadow: [
                             BoxShadow(
-                              color: const Color(0xFF6C63FF).withOpacity(0.2),
-                              blurRadius: 20,
+                              color: AppColors.primary.withOpacity(0.3),
+                              blurRadius: 30,
                               spreadRadius: 5,
                             ),
                           ],
                         ),
-                        child: const Icon(Icons.security, size: 48, color: Color(0xFF6C63FF)),
+                        child: const Icon(
+                          Icons.security_rounded,
+                          size: 52,
+                          color: Colors.white,
+                        ),
                       ),
                     ),
-                    const SizedBox(height: 24),
+                    const SizedBox(height: 28),
 
-                    const Text(
-                      'Saisissez les informations fournies par l\'agent pour activer ce téléphone.',
+                    // Titre et description
+                    Text(
+                      'Activation de l\'appareil',
                       textAlign: TextAlign.center,
-                      style: TextStyle(fontSize: 15, color: Colors.white70, height: 1.4),
+                      style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.w600,
+                        color: textPrimary,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Saisissez les informations fournies par l\'agent\npour activer ce téléphone.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: textSecondary,
+                        height: 1.5,
+                      ),
                     ),
                     const SizedBox(height: 32),
 
@@ -428,76 +462,120 @@ class _ActivationScreenState extends State<ActivationScreen> {
                     if (_generalErrorMessage != null)
                       Container(
                         margin: const EdgeInsets.only(bottom: 16),
-                        padding: const EdgeInsets.all(12),
+                        padding: const EdgeInsets.all(14),
                         decoration: BoxDecoration(
-                          color: Colors.red.withOpacity(0.15),
+                          color: errorBoxBg,
                           borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: Colors.red.withOpacity(0.3)),
+                          border: Border.all(
+                            color: AppColors.error.withOpacity(0.3),
+                          ),
                         ),
                         child: Row(
                           children: [
-                            Icon(Icons.error_outline, color: Colors.red.shade300, size: 20),
+                            const Icon(
+                              Icons.error_outline,
+                              color: AppColors.error,
+                              size: 22,
+                            ),
                             const SizedBox(width: 12),
                             Expanded(
                               child: Text(
                                 _generalErrorMessage!,
-                                style: TextStyle(color: Colors.red.shade300, fontSize: 14),
+                                style: const TextStyle(
+                                  color: AppColors.error,
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w500,
+                                ),
                               ),
                             ),
                             GestureDetector(
                               onTap: () => setState(() => _generalErrorMessage = null),
-                              child: Icon(Icons.close, color: Colors.red.shade300, size: 18),
+                              child: const Icon(
+                                Icons.close,
+                                color: AppColors.error,
+                                size: 20,
+                              ),
                             ),
                           ],
                         ),
                       ),
 
                     // Formulaire
-                    _buildNeonCard(
-                      glowColor: const Color(0xFF6C63FF),
+                    _buildCard(
+                      cardBg: cardBg,
+                      shadow: shadow,
                       child: Column(
                         children: [
                           // Champ Contrat
                           TextField(
                             controller: _contractController,
                             keyboardType: TextInputType.text,
+                            textCapitalization: TextCapitalization.characters,
+                            inputFormatters: [
+                              TextInputFormatter.withFunction((oldValue, newValue) {
+                                return newValue.copyWith(text: newValue.text.toUpperCase());
+                              }),
+                            ],
                             maxLength: 32,
-                            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w500),
-                            decoration: _neonInputDecoration(
+                            style: TextStyle(
+                              color: textPrimary,
+                              fontWeight: FontWeight.w500,
+                              fontSize: 15,
+                            ),
+                            decoration: _buildInputDecoration(
                               labelText: 'Numéro de contrat',
-                              hintText: 'Ex: SN-2026-...',
-                              icon: Icons.description,
+                              hintText: 'Ex: SN-2026-001',
+                              icon: Icons.description_outlined,
                               errorText: _contractError,
+                              textHint: textHint,
+                              inputBg: inputBg,
+                              inputBorderColor: inputBorderColor,
                             ),
                           ),
-                          const SizedBox(height: 12),
+                          const SizedBox(height: 16),
 
                           // Champ Code
                           TextField(
                             controller: _codeController,
                             keyboardType: TextInputType.number,
                             maxLength: 8,
-                            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w500, letterSpacing: 2.0),
-                            decoration: _neonInputDecoration(
+                            style: TextStyle(
+                              color: textPrimary,
+                              fontWeight: FontWeight.w500,
+                              fontSize: 15,
+                              letterSpacing: 2.0,
+                            ),
+                            decoration: _buildInputDecoration(
                               labelText: 'Code d\'activation',
                               hintText: '8 chiffres',
-                              icon: Icons.lock_outline,
+                              icon: Icons.lock_outline_rounded,
                               errorText: _codeError,
+                              textHint: textHint,
+                              inputBg: inputBg,
+                              inputBorderColor: inputBorderColor,
                             ),
                           ),
-                          const SizedBox(height: 12),
+                          const SizedBox(height: 16),
 
                           // Champ IMEI
                           TextField(
                             controller: _imeiController,
                             keyboardType: TextInputType.number,
                             maxLength: 4,
-                            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w500, letterSpacing: 2.0),
-                            decoration: _neonInputDecoration(
+                            style: TextStyle(
+                              color: textPrimary,
+                              fontWeight: FontWeight.w500,
+                              fontSize: 15,
+                              letterSpacing: 2.0,
+                            ),
+                            decoration: _buildInputDecoration(
                               labelText: '4 derniers chiffres IMEI',
                               hintText: 'Ex: 1234',
-                              icon: Icons.qr_code,
+                              icon: Icons.qr_code_scanner_rounded,
                               errorText: _imeiError,
+                              textHint: textHint,
+                              inputBg: inputBg,
+                              inputBorderColor: inputBorderColor,
                             ),
                           ),
                         ],
@@ -505,13 +583,13 @@ class _ActivationScreenState extends State<ActivationScreen> {
                     ),
                     const SizedBox(height: 32),
 
-                    // Bouton
+                    // Bouton d'activation avec dégradé
                     Container(
                       decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(16),
+                        borderRadius: BorderRadius.circular(14),
                         boxShadow: [
                           BoxShadow(
-                            color: const Color(0xFF6C63FF).withOpacity(0.4),
+                            color: AppColors.primary.withOpacity(0.35),
                             blurRadius: 20,
                             offset: const Offset(0, 4),
                           ),
@@ -521,26 +599,36 @@ class _ActivationScreenState extends State<ActivationScreen> {
                         onPressed: _isLoading ? null : _activateApp,
                         style: ElevatedButton.styleFrom(
                           padding: const EdgeInsets.symmetric(vertical: 18),
-                          backgroundColor: const Color(0xFF6C63FF),
-                          disabledBackgroundColor: const Color(0xFF6C63FF).withOpacity(0.5),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                          backgroundColor: AppColors.primary,
+                          disabledBackgroundColor: AppColors.primary.withOpacity(0.5),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                          elevation: 0,
                         ),
                         child: _isLoading
                             ? const SizedBox(
                           height: 24,
                           width: 24,
-                          child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2.5),
+                          child: CircularProgressIndicator(
+                            color: Colors.white,
+                            strokeWidth: 2.5,
+                          ),
                         )
                             : const Row(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            Icon(Icons.power_settings_new, color: Colors.white, size: 20),
-                            SizedBox(width: 10),
+                            Icon(
+                              Icons.power_settings_new_rounded,
+                              color: Colors.white,
+                              size: 22,
+                            ),
+                            SizedBox(width: 12),
                             Text(
                               'Activer l\'appareil',
                               style: TextStyle(
                                 fontSize: 16,
-                                fontWeight: FontWeight.bold,
+                                fontWeight: FontWeight.w600,
                                 color: Colors.white,
                                 letterSpacing: 0.5,
                               ),
@@ -550,7 +638,27 @@ class _ActivationScreenState extends State<ActivationScreen> {
                       ),
                     ),
 
-                    // Espace flexible pour centrer (en bas)
+                    // Note de sécurité
+                    const SizedBox(height: 20),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          Icons.shield_outlined,
+                          color: textHint,
+                          size: 16,
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          'Connexion sécurisée',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: textHint,
+                          ),
+                        ),
+                      ],
+                    ),
+
                     const Spacer(),
                   ],
                 ),
@@ -561,4 +669,78 @@ class _ActivationScreenState extends State<ActivationScreen> {
       ),
     );
   }
+
+
+
+  // 👇 Méthode de vérification de version adaptée à ton API
+  Future<bool> _checkAppVersion() async {
+    try {
+      final PackageInfo packageInfo = await PackageInfo.fromPlatform();
+      final int currentVersionCode = int.parse(packageInfo.buildNumber);
+
+      final response = await http.get(
+        Uri.parse('https://admin.sniper-sarl.cloud/api/v1/app/latest-version'),
+        headers: {
+          'Accept': 'application/vnd.api+json',
+        },
+      );
+
+      if (response.statusCode == 200) {
+        final decoded = jsonDecode(response.body);
+        final data = decoded['data'] ?? {};
+        final attributes = data['attributes'] ?? {};
+        final links = data['links'] ?? {};
+
+        final int latestVersionCode = attributes['version_code'] ?? 0;
+        final String versionName = attributes['version_name'] ?? '';
+        final bool isMandatory = attributes['is_mandatory'] ?? false;
+        final String releaseNotes = attributes['release_notes'] ?? '';
+        final int sizeBytes = attributes['size_bytes'] ?? 0;
+        final String downloadUrl = links['download'] ?? '';
+
+        // Comparaison : Si la version du serveur est supérieure à celle installée
+        if (latestVersionCode > currentVersionCode && downloadUrl.isNotEmpty) {
+          if (!mounted) return true;
+
+          if (isMandatory) {
+            // Mise à jour OBLIGATOIRE : remplace l'écran actuel
+            Navigator.pushReplacement(
+              context,
+              MaterialPageRoute(
+                builder: (context) => UpdateScreen(
+                  updateUrl: downloadUrl,
+                  releaseNotes: releaseNotes,
+                  isMandatory: true,
+                  versionName: versionName,
+                  sizeBytes: sizeBytes,
+                ),
+              ),
+            );
+            return true; // Bloque le reste du chargement
+          } else {
+            // Mise à jour FACULTATIVE : l'utilisateur peut cliquer "Plus tard"
+            await Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => UpdateScreen(
+                  updateUrl: downloadUrl,
+                  releaseNotes: releaseNotes,
+                  isMandatory: false,
+                  versionName: versionName,
+                  sizeBytes: sizeBytes,
+                ),
+              ),
+            );
+            return false; // L'utilisateur continue vers le Dashboard/Activation
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint("⚠️ Erreur lors de la vérification de version: $e");
+      // En cas d'erreur réseau, on ne bloque pas le client
+    }
+    return false;
+  }
+
+
 }

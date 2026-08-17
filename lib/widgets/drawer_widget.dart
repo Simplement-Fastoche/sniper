@@ -1,21 +1,30 @@
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sniper/models/user_model.dart';
-import '../theme/app_theme.dart';
+import '../config/app_colors.dart';
 
 class CustomDrawer extends StatelessWidget {
   final User user;
   final Function(int) onMenuItemSelected;
+  final bool isDarkMode;
+  final VoidCallback onThemeToggle;
 
   const CustomDrawer({
     super.key,
     required this.user,
     required this.onMenuItemSelected,
+    this.isDarkMode = false,
+    required this.onThemeToggle,
   });
 
   @override
   Widget build(BuildContext context) {
+    final bgColor = isDarkMode ? const Color(0xFF1A1A2E) : Colors.white;
+    final textColor = isDarkMode ? Colors.white : const Color(0xFF1A1E2B);
+    final textSecondary = isDarkMode ? Colors.white70 : Colors.black54;
+
     return Drawer(
-      backgroundColor: Colors.white,
+      backgroundColor: bgColor,
       width: MediaQuery.of(context).size.width * 0.85,
       child: Column(
         children: [
@@ -27,10 +36,16 @@ class CustomDrawer extends StatelessWidget {
               gradient: LinearGradient(
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
-                colors: [
+                colors: isDarkMode
+                    ? [
+                  const Color(0xFF0A0A1A),
+                  const Color(0xFF1A2A1A),
+                  const Color(0xFF00A83A).withOpacity(0.8),
+                ]
+                    : [
                   const Color(0xFF1A1E2B),
-                  const Color(0xFF2D325A),
-                  const Color(0xFF4361EE).withOpacity(0.9),
+                  const Color(0xFF004D1A),
+                  const Color(0xFF00A83A).withOpacity(0.9),
                 ],
                 stops: const [0.0, 0.5, 1.0],
               ),
@@ -56,7 +71,7 @@ class CustomDrawer extends StatelessWidget {
                             shape: BoxShape.circle,
                             boxShadow: [
                               BoxShadow(
-                                color: const Color(0xFF4361EE).withOpacity(0.4),
+                                color: const Color(0xFF00A83A).withOpacity(0.4),
                                 blurRadius: 20,
                                 spreadRadius: 2,
                               ),
@@ -65,10 +80,33 @@ class CustomDrawer extends StatelessWidget {
                           child: CircleAvatar(
                             radius: 40,
                             backgroundColor: Colors.white,
-                            child: CircleAvatar(
-                              radius: 36,
-                              backgroundImage: NetworkImage(user.avatarUrl),
-                              backgroundColor: Colors.grey[200],
+                            child: FutureBuilder<SharedPreferences>(
+                                future: SharedPreferences.getInstance(),
+                                builder: (context, snapshot) {
+                                  Map<String, String>? imageHeaders;
+
+                                  if (snapshot.hasData) {
+                                    final token = snapshot.data!.getString('auth_token');
+                                    if (token != null && !user.avatarUrl.contains('ui-avatars.com')) {
+                                      imageHeaders = {
+                                        'Authorization': 'Bearer $token',
+                                        'Accept': 'application/vnd.api+json'
+                                      };
+                                    }
+                                  }
+
+                                  return CircleAvatar(
+                                    radius: 36,
+                                    backgroundColor: Colors.grey[200],
+                                    backgroundImage: NetworkImage(
+                                      user.avatarUrl,
+                                      headers: imageHeaders,
+                                    ),
+                                    onBackgroundImageError: (error, stackTrace) {
+                                      debugPrint('Erreur de chargement de l\'image de profil: $error');
+                                    },
+                                  );
+                                }
                             ),
                           ),
                         ),
@@ -78,7 +116,7 @@ class CustomDrawer extends StatelessWidget {
                           child: Container(
                             padding: const EdgeInsets.all(3),
                             decoration: const BoxDecoration(
-                              color: Color(0xFF4CAF50),
+                              color: Color(0xFFFFC107),
                               shape: BoxShape.circle,
                             ),
                             child: const Icon(
@@ -102,7 +140,7 @@ class CustomDrawer extends StatelessWidget {
                             user.name,
                             style: const TextStyle(
                               color: Colors.white,
-                              fontSize: 14,
+                              fontSize: 15,
                               fontWeight: FontWeight.w700,
                               letterSpacing: 0.5,
                             ),
@@ -110,9 +148,24 @@ class CustomDrawer extends StatelessWidget {
                             overflow: TextOverflow.ellipsis,
                           ),
                           const SizedBox(height: 4),
-                          // Numéro de téléphone
 
-                          const SizedBox(height: 6),
+                          // Affichage du Numéro de téléphone
+                          Row(
+                            children: [
+                              Icon(Icons.phone_android, color: Colors.white.withOpacity(0.7), size: 12),
+                              const SizedBox(width: 4),
+                              Text(
+                                user.phoneNumber,
+                                style: TextStyle(
+                                  color: Colors.white.withOpacity(0.9),
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w400,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+
                           // Contrat
                           Container(
                             padding: const EdgeInsets.symmetric(
@@ -147,7 +200,8 @@ class CustomDrawer extends StatelessWidget {
                   ],
                 ),
                 const SizedBox(height: 16),
-                // Bouton Voir les détails - centré en dessous
+
+                // Bouton Voir les détails
                 Center(
                   child: Container(
                     width: 160,
@@ -173,26 +227,7 @@ class CustomDrawer extends StatelessWidget {
                             horizontal: 16,
                             vertical: 10,
                           ),
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Text(
-                                'Voir les détails',
-                                style: TextStyle(
-                                  color: Colors.white.withOpacity(0.95),
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w600,
-                                  letterSpacing: 0.5,
-                                ),
-                              ),
-                              const SizedBox(width: 8),
-                              Icon(
-                                Icons.arrow_forward_ios,
-                                color: Colors.white.withOpacity(0.8),
-                                size: 12,
-                              ),
-                            ],
-                          ),
+
                         ),
                       ),
                     ),
@@ -201,6 +236,71 @@ class CustomDrawer extends StatelessWidget {
               ],
             ),
           ),
+
+          // ===== SEPARATEUR =====
+          const SizedBox(height: 8),
+
+          // ===== ITEMS DU MENU =====
+          Expanded(
+            child: ListView(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              children: [
+
+                const Divider(color: Colors.grey, height: 30),
+
+                // ===== TOGGLE THEME =====
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 4),
+                  child: Material(
+                    color: Colors.transparent,
+                    child: ListTile(
+                      leading: Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: isDarkMode
+                              ? Colors.white.withOpacity(0.1)
+                              : AppColors.primary.withOpacity(0.08),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Icon(
+                          isDarkMode ? Icons.light_mode : Icons.dark_mode,
+                          color: isDarkMode ? AppColors.secondary : AppColors.primary,
+                          size: 22,
+                        ),
+                      ),
+                      title: Text(
+                        isDarkMode ? 'Thème clair' : 'Thème sombre',
+                        style: TextStyle(
+                          color: textColor,
+                          fontWeight: FontWeight.w600,
+                          fontSize: 15,
+                          letterSpacing: 0.3,
+                        ),
+                      ),
+                      trailing: Switch(
+                        value: isDarkMode,
+                        onChanged: (_) => onThemeToggle(),
+                        activeColor: AppColors.primary,
+                        activeTrackColor: AppColors.primaryLight,
+                        inactiveThumbColor: Colors.white,
+                        inactiveTrackColor: Colors.grey[300],
+                      ),
+                      onTap: onThemeToggle,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      hoverColor: AppColors.primary.withOpacity(0.05),
+                      splashColor: AppColors.primary.withOpacity(0.1),
+                    ),
+                  ),
+                ),
+
+                const Divider(color: Colors.grey, height: 20),
+              ],
+            ),
+          ),
+
+
         ],
       ),
     );
@@ -210,8 +310,12 @@ class CustomDrawer extends StatelessWidget {
     required IconData icon,
     required String title,
     required int index,
-    Color? color,
+    Color? iconColor,
+    Color? textColor,
+    required bool isDarkMode,
   }) {
+    final defaultColor = isDarkMode ? Colors.white70 : const Color(0xFF1A1E2B);
+
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 2),
       child: Material(
@@ -220,42 +324,32 @@ class CustomDrawer extends StatelessWidget {
           leading: Container(
             padding: const EdgeInsets.all(8),
             decoration: BoxDecoration(
-              color: color != null
-                  ? color.withOpacity(0.1)
-                  : const Color(0xFF4361EE).withOpacity(0.08),
+              color: iconColor != null
+                  ? iconColor.withOpacity(0.1)
+                  : AppColors.primary.withOpacity(0.08),
               borderRadius: BorderRadius.circular(10),
             ),
             child: Icon(
               icon,
-              color: color ?? const Color(0xFF4361EE),
+              color: iconColor ?? AppColors.primary,
               size: 22,
             ),
           ),
           title: Text(
             title,
             style: TextStyle(
-              color: color ?? const Color(0xFF1A1E2B),
+              color: textColor ?? defaultColor,
               fontWeight: FontWeight.w600,
               fontSize: 15,
               letterSpacing: 0.3,
             ),
           ),
-          trailing: index >= 0 && index < 4
-              ? Container(
-            width: 6,
-            height: 6,
-            decoration: BoxDecoration(
-              color: const Color(0xFF4361EE).withOpacity(0.3),
-              borderRadius: BorderRadius.circular(3),
-            ),
-          )
-              : null,
           onTap: () => onMenuItemSelected(index),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(12),
           ),
-          hoverColor: const Color(0xFF4361EE).withOpacity(0.05),
-          splashColor: const Color(0xFF4361EE).withOpacity(0.1),
+          hoverColor: AppColors.primary.withOpacity(0.05),
+          splashColor: AppColors.primary.withOpacity(0.1),
         ),
       ),
     );
